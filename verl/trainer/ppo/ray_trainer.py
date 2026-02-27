@@ -24,6 +24,7 @@ import uuid
 from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime
 from pprint import pprint
 from typing import Any, Optional
 
@@ -353,7 +354,25 @@ class RayPPOTrainer:
 
         self.use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
 
+        # Initialize rollout output length log file
+        _log_dir = self.config.trainer.get("output_length_log_dir", self.config.trainer.default_local_dir)
+        os.makedirs(_log_dir, exist_ok=True)
+        _timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._output_length_log_path = os.path.join(_log_dir, f"rollout_output_lengths_{_timestamp}.jsonl")
+
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
+
+    def _log_output_lengths(self, gen_batch_output: "DataProto", rollout_step: int) -> None:
+        """Log per-request output lengths for the current rollout step."""
+        prompt_length = gen_batch_output.batch["prompts"].shape[1]
+        response_attention_mask = gen_batch_output.batch["attention_mask"][:, prompt_length:]
+        output_lengths = response_attention_mask.sum(dim=1).tolist()
+        record = {
+            "rollout_step": rollout_step,
+            "output_lengths": [int(l) for l in output_lengths],
+        }
+        with open(self._output_length_log_path, "a") as f:
+            f.write(json.dumps(record) + "\n")
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -1362,6 +1381,7 @@ class RayPPOTrainer:
                         else:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
 
+                        self._log_output_lengths(gen_batch_output, rollout_step=self.global_steps)
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
