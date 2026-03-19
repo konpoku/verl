@@ -32,8 +32,15 @@ from io import StringIO
 # used for testing the code that reads from input
 from unittest.mock import mock_open, patch
 
+import types
+
 import numpy as np
-from pyext import RuntimeModule
+
+
+def _runtime_module_from_string(module_name, _description, code_string):
+    module = types.ModuleType(module_name)
+    exec(compile(code_string, "<string>", "exec"), module.__dict__)  # noqa: S102
+    return module
 
 
 def truncatefn(s, length=300):
@@ -121,7 +128,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 print(f"sol = {sol}")
             signal.alarm(timeout)
             try:
-                tmp_sol = RuntimeModule.from_string("tmp_sol", "", sol)
+                tmp_sol = _runtime_module_from_string("tmp_sol", "", sol)
                 tmp = tmp_sol if "class Solution" not in test else tmp_sol.Solution()
                 signal.alarm(0)
             except Exception as e:
@@ -181,7 +188,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
             method_name = "code"
             signal.alarm(timeout)
             try:
-                tmp_sol = RuntimeModule.from_string("tmp_sol", "", sol)
+                tmp_sol = _runtime_module_from_string("tmp_sol", "", sol)
                 tmp = tmp_sol
                 signal.alarm(0)
             except Exception as e:
